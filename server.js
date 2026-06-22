@@ -323,7 +323,50 @@ app.post('/process-tap', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 2. INITIATE TOP-UP
+// 2. VERIFY PHONE (Check if registered with MarzPay)
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.post('/verify-phone', async (req, res) => {
+  try {
+    const { phone_number } = req.body;
+    
+    if (!phone_number) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'phone_number required'
+      });
+    }
+    
+    const phone = normalizePhone(phone_number).replace('+', ''); // MarzPay wants no +
+    
+    console.log('[VERIFY-PHONE] Checking:', phone);
+    
+    const response = await axios.post(
+      `${MARZPAY_BASE}/phone-verification/verify`,
+      { phone_number: phone },
+      {
+        headers: {
+          'Authorization': `Basic ${MARZPAY_AUTH}`,
+          'Content-Type': 'application/json'
+        },
+        timeout: 15000
+      }
+    );
+    
+    console.log('[VERIFY-PHONE] Response:', response.data);
+    return res.json(response.data);
+    
+  } catch (error) {
+    console.error('[VERIFY-PHONE] Error:', error.response?.data ?? error.message);
+    return res.json({
+      status: 'error',
+      message: error.response?.data?.message || 'Phone verification failed'
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 3. INITIATE TOP-UP
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.post('/initiate-topup', async (req, res) => {
@@ -422,7 +465,7 @@ app.post('/initiate-topup', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
-// 3. CHECK TOP-UP STATUS
+// 4. CHECK TOP-UP STATUS
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/topup-status/:uuid', async (req, res) => {
