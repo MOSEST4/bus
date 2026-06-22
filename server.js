@@ -86,8 +86,15 @@ app.use((req, res, next) => {
 
 function normalizePhone(raw) {
   let p = (raw || '').replace(/[\s\-\(\)]/g, '');
-  if (p.startsWith('0')) return '+256' + p.substring(1);
-  if (/^256/.test(p)) return '+' + p;
+  // Remove any leading zeros
+  p = p.replace(/^0+/, '');
+  // Remove any duplicate country code (e.g., 256256 -> 256)
+  if (p.startsWith('256256')) p = p.substring(3);
+  // Add + if not present
+  if (p.startsWith('256')) return '+' + p;
+  // If it's just the local number (7XX...), add +256
+  if (p.startsWith('7') || p.startsWith('3') || p.startsWith('4')) return '+256' + p;
+  // Default: assume it's missing country code
   if (!p.startsWith('+')) return '+256' + p;
   return p;
 }
@@ -347,13 +354,15 @@ app.post('/initiate-topup', async (req, res) => {
     }
 
     const phone = normalizePhone(phone_number);
-    const reference = `TOPUP-${card_uid}-${Date.now()}`;
+    // MarzPay requires UUID format for reference
+    const { randomUUID } = require('crypto');
+    const reference = randomUUID();
 
     console.log(`[TOPUP] Initiating top-up:`);
     console.log(`  - Card UID: ${card_uid}`);
     console.log(`  - Phone: ${phone}`);
     console.log(`  - Amount: ${amount} UGX`);
-    console.log(`  - Reference: ${reference}`);
+    console.log(`  - Reference (UUID): ${reference}`);
 
     // Call MarzPay
     const params = new URLSearchParams();
