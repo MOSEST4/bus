@@ -472,9 +472,9 @@ app.get('/topup-status/:uuid', async (req, res) => {
   try {
     const { uuid } = req.params;
 
-    console.log(`[STATUS] Checking: ${uuid}`);
+    console.log(`[STATUS] Checking payment: ${uuid}`);
 
-    // Check MarzPay
+    // Check MarzPay status
     const marzResponse = await axios.get(
       `${MARZPAY_BASE}/collect-money/${uuid}`,
       {
@@ -484,15 +484,18 @@ app.get('/topup-status/:uuid', async (req, res) => {
     );
 
     const data = marzResponse.data;
-    console.log(`[STATUS] MarzPay: ${data.status}`);
+    console.log(`[STATUS] MarzPay Response:`, JSON.stringify(data, null, 2));
 
     // If successful, update balance
-    if (data.status === 'success') {
+    if (data.status === 'success' || data.status === 'completed') {
       const pending = await firestoreGet('pending_topups', uuid);
 
-      if (pending && pending.status === 'pending') {
+      if (pending && pending.status !== 'completed') {
+        console.log(`[STATUS] Processing successful payment for ${pending.card_uid}`);
+        
         const card = await firestoreGet('cards', pending.card_uid);
-        const newBalance = (card.balance || 0) + pending.amount;
+        const currentBalance = card.balance || 0;
+        const newBalance = currentBalance + pending.amount;
 
         // Update card balance
         await firestoreSet('cards', pending.card_uid, {
@@ -505,6 +508,8 @@ app.get('/topup-status/:uuid', async (req, res) => {
           student_name: card.student_name || 'Unknown',
           type: 'top_up',
           amount: pending.amount,
+          balance_before: currentBalance,
+          balance_after: newBalance,
           phone_number: pending.phone_number,
           reference: pending.reference,
           uuid: uuid,
@@ -518,18 +523,22 @@ app.get('/topup-status/:uuid', async (req, res) => {
           completed_at: new Date().toISOString()
         });
 
-        console.log(`[STATUS] Top-up completed! +${pending.amount}`);
+        console.log(`[STATUS] ✅ Top-up completed! ${currentBalance} → ${newBalance}`);
 
         // Send SMS
         const msg = `Top-up successful! UGX ${pending.amount.toLocaleString()} added. New balance: UGX ${newBalance.toLocaleString()}. - Global Coaches`;
         sendSms(pending.phone_number, msg).catch(e => console.error('[SMS] Failed:', e));
+      } else {
+        console.log(`[STATUS] Payment already processed or pending not found`);
       }
+    } else {
+      console.log(`[STATUS] Current status: ${data.status}`);
     }
 
     return res.json(data);
 
   } catch (error) {
-    console.error('[STATUS] Error:', error.response?.data ?? error.message);
+    console.error('[STATUS] ❌ Error:', error.response?.data ?? error.message);
     return res.json({
       status: 'error',
       message: error.response?.data?.message || error.message
