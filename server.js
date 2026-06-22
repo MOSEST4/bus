@@ -349,7 +349,11 @@ app.post('/initiate-topup', async (req, res) => {
     const phone = normalizePhone(phone_number);
     const reference = `TOPUP-${card_uid}-${Date.now()}`;
 
-    console.log(`[TOPUP] ${amount} UGX from ${phone} for card ${card_uid}`);
+    console.log(`[TOPUP] Initiating top-up:`);
+    console.log(`  - Card UID: ${card_uid}`);
+    console.log(`  - Phone: ${phone}`);
+    console.log(`  - Amount: ${amount} UGX`);
+    console.log(`  - Reference: ${reference}`);
 
     // Call MarzPay
     const params = new URLSearchParams();
@@ -358,6 +362,10 @@ app.post('/initiate-topup', async (req, res) => {
     params.append('country', 'UG');
     params.append('reference', reference);
     params.append('description', `Bus Fare Top-Up - ${card.student_name || card_uid}`);
+
+    console.log('[TOPUP] Calling MarzPay API...');
+    console.log(`  - URL: ${MARZPAY_BASE}/collect-money`);
+    console.log(`  - Params: ${params.toString()}`);
 
     const marzResponse = await axios.post(
       `${MARZPAY_BASE}/collect-money`,
@@ -373,7 +381,8 @@ app.post('/initiate-topup', async (req, res) => {
     );
 
     const data = marzResponse.data;
-    console.log(`[TOPUP] MarzPay response:`, data);
+    console.log(`[TOPUP] MarzPay Response:`);
+    console.log(JSON.stringify(data, null, 2));
 
     // Store pending transaction
     if (data.status === 'success' && data.uuid) {
@@ -391,7 +400,11 @@ app.post('/initiate-topup', async (req, res) => {
     return res.json(data);
 
   } catch (error) {
-    console.error('[TOPUP] Error:', error.response?.data ?? error.message);
+    console.error('[TOPUP] ❌ ERROR:');
+    console.error('  - Message:', error.message);
+    console.error('  - Response:', error.response?.data);
+    console.error('  - Status:', error.response?.status);
+    console.error('  - Stack:', error.stack);
     return res.json({
       status: 'error',
       message: error.response?.data?.message || error.message
