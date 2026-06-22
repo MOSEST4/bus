@@ -142,16 +142,22 @@ async function firestoreSet(collection, docId, data) {
   for (const [key, value] of Object.entries(data)) {
     if (typeof value === 'string') fields[key] = { stringValue: value };
     else if (typeof value === 'number') {
-      if (Number.isInteger(value)) fields[key] = { integerValue: value };
+      if (Number.isInteger(value)) fields[key] = { integerValue: String(value) };
       else fields[key] = { doubleValue: value };
     }
     else if (typeof value === 'boolean') fields[key] = { booleanValue: value };
     else if (value instanceof Date) fields[key] = { timestampValue: value.toISOString() };
   }
   
-  await axios.patch(url, { fields }, {
-    params: { updateMask: { fieldPaths: Object.keys(data) } }
-  });
+  try {
+    await axios.patch(url + '?updateMask.fieldPaths=' + Object.keys(data).join('&updateMask.fieldPaths='), 
+      { fields },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+  } catch (e) {
+    console.error('[Firestore SET] Error:', e.response?.data ?? e.message);
+    throw e;
+  }
 }
 
 async function firestoreAdd(collection, data) {
@@ -161,14 +167,21 @@ async function firestoreAdd(collection, data) {
   for (const [key, value] of Object.entries(data)) {
     if (typeof value === 'string') fields[key] = { stringValue: value };
     else if (typeof value === 'number') {
-      if (Number.isInteger(value)) fields[key] = { integerValue: value };
+      if (Number.isInteger(value)) fields[key] = { integerValue: String(value) };
       else fields[key] = { doubleValue: value };
     }
     else if (typeof value === 'boolean') fields[key] = { booleanValue: value };
     else if (value instanceof Date) fields[key] = { timestampValue: value.toISOString() };
   }
   
-  await axios.post(url, { fields });
+  try {
+    await axios.post(url, { fields }, {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (e) {
+    console.error('[Firestore ADD] Error:', e.response?.data ?? e.message);
+    throw e;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
