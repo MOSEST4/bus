@@ -22,7 +22,7 @@ const PROXY_SECRET = process.env.PROXY_SECRET || 'bus_fare_proxy_2026_secret_key
 // MarzPay
 const MARZPAY_BASE = 'https://wallet.wearemarz.com/api/v1';
 const MARZPAY_AUTH = 'bWFyel9TTmdZMHRwb1FVcFk1WmNoOndIRWdTT0lhUjhCUjNMMDV2NlZFUHFzMTBOZFdNZzU4';
-const MIN_AMOUNT = 500;
+const MIN_AMOUNT = 1000; // Minimum 1000 UGX
 
 // EgoSMS
 const EGO_SMS_USERNAME = 'INFINITECH';
@@ -472,7 +472,8 @@ app.get('/topup-status/:uuid', async (req, res) => {
   try {
     const { uuid } = req.params;
 
-    console.log(`[STATUS] Checking payment: ${uuid}`);
+    console.log(`[STATUS] ========================================`);
+    console.log(`[STATUS] Checking payment UUID: ${uuid}`);
 
     // Check MarzPay status
     const marzResponse = await axios.get(
@@ -484,18 +485,39 @@ app.get('/topup-status/:uuid', async (req, res) => {
     );
 
     const data = marzResponse.data;
-    console.log(`[STATUS] MarzPay Response:`, JSON.stringify(data, null, 2));
+    console.log(`[STATUS] MarzPay Full Response:`, JSON.stringify(data, null, 2));
+    console.log(`[STATUS] Status field value: "${data.status}"`);
+    console.log(`[STATUS] Status type: ${typeof data.status}`);
+
+    // Check various possible success status values
+    const statusLower = (data.status || '').toString().toLowerCase();
+    const isSuccess = statusLower === 'success' || 
+                     statusLower === 'completed' || 
+                     statusLower === 'successful' ||
+                     data.status === 1 ||
+                     data.payment_status === 'success' ||
+                     data.payment_status === 'completed';
+
+    console.log(`[STATUS] Status lowercase: "${statusLower}"`);
+    console.log(`[STATUS] Is success: ${isSuccess}`);
 
     // If successful, update balance
-    if (data.status === 'success' || data.status === 'completed') {
+    if (isSuccess) {
+      console.log(`[STATUS] 🎉 Payment is successful! Processing...`);
+      
       const pending = await firestoreGet('pending_topups', uuid);
+      console.log(`[STATUS] Pending record:`, pending);
 
       if (pending && pending.status !== 'completed') {
-        console.log(`[STATUS] Processing successful payment for ${pending.card_uid}`);
+        console.log(`[STATUS] Processing successful payment for card: ${pending.card_uid}`);
         
         const card = await firestoreGet('cards', pending.card_uid);
+        console.log(`[STATUS] Card data:`, card);
+        
         const currentBalance = card.balance || 0;
         const newBalance = currentBalance + pending.amount;
+
+        console.log(`[STATUS] Balance update: ${currentBalance} → ${newBalance}`);
 
         // Update card balance
         await firestoreSet('cards', pending.card_uid, {
@@ -505,7 +527,7 @@ app.get('/topup-status/:uuid', async (req, res) => {
         // Log transaction
         await firestoreAdd('transactions', {
           card_uid: pending.card_uid,
-          student_name: card.student_name || 'Unknown',
+          student_name: card.student_name || card.name || 'Unknown',
           type: 'top_up',
           amount: pending.amount,
           balance_before: currentBalance,
@@ -523,22 +545,47 @@ app.get('/topup-status/:uuid', async (req, res) => {
           completed_at: new Date().toISOString()
         });
 
-        console.log(`[STATUS] ✅ Top-up completed! ${currentBalance} → ${newBalance}`);
+        console.log(`[STATUS] ✅ Top-up completed successfully!`);
+        console.log(`[STATUS] New balance: ${newBalance}`);
 
         // Send SMS
         const msg = `Top-up successful! UGX ${pending.amount.toLocaleString()} added. New balance: UGX ${newBalance.toLocaleString()}. - Global Coaches`;
         sendSms(pending.phone_number, msg).catch(e => console.error('[SMS] Failed:', e));
+        
+        // Return success status to Flutter
+        return res.json({
+          status: 'success',
+          message: 'Payment completed',
+          balance: newBalance,
+          amount: pending.amount
+        });
+      } else if (pending && pending.status === 'completed') {
+        console.log(`[STATUS] Payment already processed`);
+        return res.json({
+          status: 'success',
+          message: 'Payment already completed',
+          already_processed: true
+        });
       } else {
-        console.log(`[STATUS] Payment already processed or pending not found`);
+        console.log(`[STATUS] ⚠️ Pending record not found!`);
+        return res.json({
+          status: 'error',
+          message: 'Pending transaction not found'
+        });
       }
     } else {
-      console.log(`[STATUS] Current status: ${data.status}`);
+      console.log(`[STATUS] Current status: ${data.status} (not completed yet)`);
     }
 
+    console.log(`[STATUS] ========================================`);
     return res.json(data);
 
   } catch (error) {
-    console.error('[STATUS] ❌ Error:', error.response?.data ?? error.message);
+    console.error('[STATUS] ❌ Error:', error.message);
+    console.error('[STATUS] Stack:', error.stack);
+    if (error.response) {
+      console.error('[STATUS] Response data:', error.response.data);
+    }
     return res.json({
       status: 'error',
       message: error.response?.data?.message || error.message
